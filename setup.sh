@@ -17,6 +17,7 @@ sudo apt-get update
 sudo apt update
 sudo apt install -y python3 python3-pip python3-venv
 sudo apt-get install -y python3-dev libudev-dev python3-xlib google-chrome-stable
+sudo apt-get install -y python3-uinput
 
 pip3 install -r requirements.txt --break-system-packages
 

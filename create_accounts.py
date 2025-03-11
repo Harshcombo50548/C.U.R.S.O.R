@@ -24,6 +24,7 @@ import string
 import yaml
 import os
 from selenium.common.exceptions import TimeoutException
+import requests  # For making HTTP requests to the temp mail service
 
 class AccountGenerator:
     def __init__(self, config_path="config.yaml"):
@@ -88,9 +89,36 @@ class AccountGenerator:
         actions.pause(random.uniform(0.5, 1.5)).perform()
         time.sleep(random.uniform(0.3, 0.7))
 
+    def get_temp_email(self):
+        """Fetch a temporary email address using an API."""
+        response = requests.get("https://api.temp-mail.org/request/domains/format/json")
+        domains = response.json()
+        email = f"{self.generate_random_string(8)}{random.choice(domains)}"
+        print(f"Generated temporary email: {email}")
+        return email
+
+    def get_verification_code(self, email):
+        """Retrieve the verification code sent to the temporary email."""
+        # This is a placeholder for the actual API call to fetch the email content
+        # You need to replace this with the actual API endpoint and logic
+        response = requests.get(f"https://api.temp-mail.org/request/mail/id/{email}/format/json")
+        emails = response.json()
+        for mail in emails:
+            if "verification code" in mail['subject'].lower():
+                # Extract the code from the email body
+                return self.extract_code_from_email(mail['body'])
+        return None
+
+    def extract_code_from_email(self, email_body):
+        """Extract the verification code from the email body."""
+        # Implement logic to extract the code from the email body
+        # This is a placeholder and needs to be adapted to the actual email format
+        return "123456"  # Example code
+
     def create_account(self):
         try:
             credentials = self.create_gmail()
+            credentials['email'] = self.get_temp_email()  # Use temporary email
 
             # Navigate to Sign in
             print("Navigating to Sign in...")
@@ -158,63 +186,23 @@ class AccountGenerator:
             self.simulate_human_typing(email_field, credentials['email'])
             print("Filled email")
 
-            # Pause for manual Cloudflare verification (accounting for two prompts)
-            print("Pausing for manual Cloudflare verification (120s total, check both prompts if needed)...")
-            self.driver.save_screenshot("pre_submit.png")
-            submit_button = self.driver.find_element(By.XPATH, "//button[@type='submit']")
-            self.simulate_human_mouse(submit_button)
-            time.sleep(random.uniform(0.7, 1.5))
-            submit_button.click()
-            print("Clicked submit")
-            time.sleep(5)
-            print(f"Current URL after submit: {self.driver.current_url}")
-            self.driver.save_screenshot("post_submit.png")
+            # Wait for email verification
+            print("Waiting for email verification code...")
+            verification_code = None
+            for _ in range(10):  # Retry for a limited number of times
+                verification_code = self.get_verification_code(credentials['email'])
+                if verification_code:
+                    break
+                time.sleep(10)  # Wait before retrying
 
-            # Wait for Cloudflare widget and allow manual intervention
-            try:
-                WebDriverWait(self.driver, 30).until(
-                    EC.presence_of_element_located((By.ID, "cf-turnstile"))
-                )
-                print("Cloudflare Turnstile widget detected (first prompt)")
-                self.driver.save_screenshot("turnstile_detected_1.png")
-
-                print("Please manually check the first Cloudflare verification box (60s)...")
-                time.sleep(60)
-                self.driver.save_screenshot("post_first_verification.png")
-
-                # Check for second prompt
-                try:
-                    WebDriverWait(self.driver, 30).until(
-                        EC.presence_of_element_located((By.ID, "cf-turnstile"))
-                    )
-                    print("Second Cloudflare Turnstile widget detected")
-                    self.driver.save_screenshot("turnstile_detected_2.png")
-
-                    print("Please manually check the second Cloudflare verification box (60s)...")
-                    time.sleep(60)
-                    self.driver.save_screenshot("post_second_verification.png")
-                except TimeoutException:
-                    print("No second Cloudflare prompt detected, proceeding...")
-
-                print(f"URL after manual verification: {self.driver.current_url}")
-
-                if "verify" in self.driver.current_url.lower() or "cloudflare" in self.driver.current_url.lower():
-                    print("Manual verification did not resolve. Aborting...")
-                    return False
-
-                error_message = self.driver.find_elements(By.XPATH, "//*[contains(text(), 'Can’t verify the user is human')]")
-                if error_message:
-                    print("Error: Can’t verify the user is human. Aborting...")
-                    return False
-
-            except TimeoutException as e:
-                print(f"Timeout waiting for Cloudflare widget: {str(e)}")
-                self.driver.save_screenshot("no_cloudflare.png")
+            if not verification_code:
+                print("Failed to retrieve verification code. Aborting...")
                 return False
-            except Exception as e:
-                print(f"Error during Cloudflare verification: {e}")
-                self.driver.save_screenshot("cloudflare_error.png")
-                return False
+
+            # Enter verification code
+            verification_code_field = self.driver.find_element(By.NAME, "verification_code")
+            self.simulate_human_typing(verification_code_field, verification_code)
+            print("Entered verification code")
 
             # Proceed to Google OAuth
             google_button = WebDriverWait(self.driver, 15).until(

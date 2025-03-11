@@ -153,6 +153,11 @@ def main():
         subprocess.run(['sudo', '-u', sudo_user, 'xhost', '-SI:localuser:root'], check=False)
         print("Removed X server access from root")
         
+        # Run create_accounts.py after cursor_signup.py finishes
+        print("Running create_accounts.py...")
+        subprocess.run(['python3', 'create_accounts.py'], check=True)
+        print("create_accounts.py finished execution")
+
     except Exception as e:
         print(f"Error during main execution: {e}")
         # Remove root access to X server even on error
