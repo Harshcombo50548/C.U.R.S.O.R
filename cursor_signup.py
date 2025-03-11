@@ -77,7 +77,7 @@ def type_url(device):
 def main():
     if os.geteuid() != 0:
         print("This script requires sudo for mouse control")
-        print("Please run: sudo python3 step5.py")
+        print("Please run: sudo python3 cursor_signup.py")
         sys.exit(1)
     
     # Get the actual user (not root)
@@ -117,20 +117,34 @@ def main():
     # Launch Chrome with proper environment
     print(f"Starting Chrome as user {sudo_user}...")
     
+    # Redirect stderr to suppress D-Bus errors
     chrome_cmd = [
         'sudo', '-u', sudo_user,
         'google-chrome',
         '--no-sandbox',
         '--disable-dev-shm-usage',
         '--start-maximized',
+        '--disable-gpu',  # Disable GPU to reduce errors
+        '--no-first-run',  # Skip first run dialogs
         'about:blank'
     ]
     
     try:
         print("Attempting to launch Chrome...")
-        chrome_process = subprocess.Popen(chrome_cmd)
+        with open(os.devnull, 'w') as devnull:
+            chrome_process = subprocess.Popen(chrome_cmd, stderr=devnull)
+        
         print("Waiting for Chrome to load...")
-        time.sleep(0.5)
+        time.sleep(2)  # Give Chrome more time to start
+        
+        # Check if Chrome is running
+        try:
+            subprocess.run(['pgrep', 'chrome'], check=True)
+        except subprocess.CalledProcessError:
+            print("Error: Chrome failed to start!")
+            sys.exit(1)
+        
+        print("Chrome is running, proceeding with automation...")
         
         # Type the URL
         type_url(device)
@@ -153,11 +167,6 @@ def main():
         subprocess.run(['sudo', '-u', sudo_user, 'xhost', '-SI:localuser:root'], check=False)
         print("Removed X server access from root")
         
-        # Run create_accounts.py after cursor_signup.py finishes
-        print("Running create_accounts.py...")
-        subprocess.run(['python3', 'create_accounts.py'], check=True)
-        print("create_accounts.py finished execution")
-
     except Exception as e:
         print(f"Error during main execution: {e}")
         # Remove root access to X server even on error
