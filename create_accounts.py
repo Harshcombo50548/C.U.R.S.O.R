@@ -25,6 +25,7 @@ import yaml
 import os
 from selenium.common.exceptions import TimeoutException
 import requests  # For making HTTP requests to the temp mail service
+import re
 
 class AccountGenerator:
     def __init__(self, config_path="config.yaml"):
@@ -90,30 +91,175 @@ class AccountGenerator:
         time.sleep(random.uniform(0.3, 0.7))
 
     def get_temp_email(self):
-        """Fetch a temporary email address using an API."""
-        response = requests.get("https://api.temp-mail.org/request/domains/format/json")
-        domains = response.json()
-        email = f"{self.generate_random_string(8)}{random.choice(domains)}"
-        print(f"Generated temporary email: {email}")
-        return email
+        """Get a temporary email address from mail.tm service."""
+        try:
+            # Create a random domain name from the available domains at mail.tm
+            domains_response = requests.get("https://api.mail.tm/domains")
+            domains = domains_response.json()["hydra:member"]
+            domain = domains[0]["domain"]  # Get the first available domain
+            
+            # Generate a random username
+            username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+            email = f"{username}@{domain}"
+            password = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
+            
+            # Create the account on mail.tm
+            account_data = {
+                "address": email,
+                "password": password
+            }
+            response = requests.post("https://api.mail.tm/accounts", json=account_data)
+            
+            if response.status_code == 201:
+                # Log in to get the auth token
+                login_data = {
+                    "address": email,
+                    "password": password
+                }
+                token_response = requests.post("https://api.mail.tm/token", json=login_data)
+                self.temp_mail_token = token_response.json()["token"]
+                print(f"Successfully created temporary email: {email}")
+                
+                # Store temp mail credentials for later use
+                self.temp_mail_credentials = {
+                    "email": email,
+                    "password": password,
+                    "token": self.temp_mail_token
+                }
+                
+                return email
+            else:
+                print(f"Error creating temp mail: {response.text}")
+                # Fallback to a different temp mail service
+                return self.get_tempmail_fallback()
+        except Exception as e:
+            print(f"Error creating temporary email: {str(e)}")
+            # Fallback to a different service
+            return self.get_tempmail_fallback()
+
+    def get_tempmail_fallback(self):
+        """Fallback method using temp-mail.org."""
+        try:
+            # Generate random username
+            username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+            
+            # Use temp-mail.org (note: their API may require registration for full access)
+            email = f"{username}@tmpmail.net"
+            print(f"Using fallback temporary email: {email}")
+            return email
+        except Exception as e:
+            print(f"Error with fallback email: {str(e)}")
+            # If all fails, generate a dummy email - the user will need to manually check
+            random_name = ''.join(random.choices(string.ascii_lowercase, k=8))
+            return f"{random_name}@example.com"
 
     def get_verification_code(self, email):
-        """Retrieve the verification code sent to the temporary email."""
-        # This is a placeholder for the actual API call to fetch the email content
-        # You need to replace this with the actual API endpoint and logic
-        response = requests.get(f"https://api.temp-mail.org/request/mail/id/{email}/format/json")
-        emails = response.json()
-        for mail in emails:
-            if "verification code" in mail['subject'].lower():
-                # Extract the code from the email body
-                return self.extract_code_from_email(mail['body'])
+        """Get the verification code from the temporary email."""
+        max_attempts = 10
+        delay_seconds = 12
+        
+        headers = {}
+        if hasattr(self, 'temp_mail_token') and self.temp_mail_token:
+            headers = {"Authorization": f"Bearer {self.temp_mail_token}"}
+        
+        # Try to fetch emails multiple times with a delay
+        for attempt in range(max_attempts):
+            try:
+                print(f"Checking for verification email (attempt {attempt+1}/{max_attempts})...")
+                
+                if "@mail.tm" in email or "@tmpmail.net" in email:
+                    # For mail.tm service
+                    response = requests.get("https://api.mail.tm/messages", headers=headers)
+                    if response.status_code == 200:
+                        messages = response.json()["hydra:member"]
+                        
+                        for message in messages:
+                            if "verification" in message["subject"].lower() or "code" in message["subject"].lower():
+                                # Get the full message content
+                                msg_id = message["id"]
+                                msg_response = requests.get(f"https://api.mail.tm/messages/{msg_id}", headers=headers)
+                                
+                                if msg_response.status_code == 200:
+                                    full_message = msg_response.json()
+                                    # Get HTML content
+                                    html_content = full_message.get("html", "")
+                                    # Extract code from the email content
+                                    code = self.extract_code_from_email(html_content)
+                                    if code:
+                                        print(f"Found verification code: {code}")
+                                        return code
+                else:
+                    # For temp-mail.org or other services
+                    # Use their API endpoints - will require specific implementation based on the service
+                    pass
+                    
+                # If we didn't find a code, wait and retry
+                print(f"No verification code found yet. Waiting {delay_seconds} seconds...")
+                time.sleep(delay_seconds)
+                
+            except Exception as e:
+                print(f"Error checking for verification code: {str(e)}")
+                time.sleep(delay_seconds)
+        
+        print("Failed to get verification code after multiple attempts")
         return None
 
     def extract_code_from_email(self, email_body):
         """Extract the verification code from the email body."""
-        # Implement logic to extract the code from the email body
-        # This is a placeholder and needs to be adapted to the actual email format
-        return "123456"  # Example code
+        try:
+            # Try different patterns for code extraction
+            
+            # Pattern 1: Look for digits in specific lengths (4-8 digits is common for verification codes)
+            if isinstance(email_body, str):
+                # Look for 6-digit code (most common)
+                six_digit_pattern = r'\b\d{6}\b'
+                matches = re.findall(six_digit_pattern, email_body)
+                if matches:
+                    return matches[0]
+                
+                # Try 4-digit code
+                four_digit_pattern = r'\b\d{4}\b'
+                matches = re.findall(four_digit_pattern, email_body)
+                if matches:
+                    return matches[0]
+                
+                # Look for code that might be formatted with spaces or hyphens
+                formatted_code_pattern = r'\b\d[\d\s-]{2,10}\d\b'
+                matches = re.findall(formatted_code_pattern, email_body)
+                if matches:
+                    # Remove any spaces or hyphens
+                    return re.sub(r'[\s-]', '', matches[0])
+                
+                # Look for code after specific phrases
+                phrases = [
+                    r'verification code[^\d]*(\d+)',
+                    r'verification code is[^\d]*(\d+)',
+                    r'your code is[^\d]*(\d+)',
+                    r'your code:[^\d]*(\d+)',
+                    r'code:[^\d]*(\d+)'
+                ]
+                
+                for pattern in phrases:
+                    matches = re.search(pattern, email_body.lower())
+                    if matches:
+                        return matches.group(1)
+            
+            # If all automated extraction methods fail, show a snippet of the email
+            # so we can see the format for debugging
+            print("Couldn't automatically extract code. Email preview:")
+            preview = email_body[:200] + "..." if len(email_body) > 200 else email_body
+            print(preview)
+            
+            # As a last resort, ask the user to input the code manually
+            manual_code = input("Please check the email and enter the verification code manually: ")
+            if manual_code.strip():
+                return manual_code.strip()
+            
+        except Exception as e:
+            print(f"Error extracting code: {str(e)}")
+        
+        # If all else fails, return None
+        return None
 
     def create_account(self):
         try:
@@ -231,8 +377,40 @@ class AccountGenerator:
             return False
 
     def save_accounts(self):
-        with open("accounts.yaml", "a") as f:
-            yaml.dump(self.accounts, f)
+        """Save the created accounts to a YAML file."""
+        timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"accounts_{timestamp}.yaml"
+        
+        # Format accounts with readable headings
+        formatted_accounts = []
+        for i, account in enumerate(self.accounts, 1):
+            formatted_account = {
+                f"Account {i}": {
+                    "email": account["email"],
+                    "password": account["password"],
+                    "created_at": account["created_at"]
+                }
+            }
+            formatted_accounts.append(formatted_account)
+        
+        # Also keep the original format for accounts.yaml
+        with open("accounts.yaml", "w") as f:
+            yaml.dump(self.accounts, f, default_flow_style=False)
+        
+        # Create the formatted version
+        with open(filename, "w") as f:
+            yaml.dump(formatted_accounts, f, default_flow_style=False)
+        
+        print(f"Accounts saved to {filename} and accounts.yaml")
+        
+        # Print a summary to the console
+        print("\n=== ACCOUNT SUMMARY ===")
+        for i, account in enumerate(self.accounts, 1):
+            print(f"Account {i}:")
+            print(f"  Email: {account['email']}")
+            print(f"  Password: {account['password']}")
+            print(f"  Created: {account['created_at']}")
+            print("------------------------")
 
     def run(self):
         for _ in range(self.config['account_count']):

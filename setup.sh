@@ -193,3 +193,14 @@ echo "After reboot, log in normally and the setup will complete automatically."
 # Sleep for 3 seconds then reboot
 sleep 3
 reboot
+
+# Check if Python development headers are installed
+echo "Checking for Python development headers..."
+dpkg -l | grep python3-dev > /dev/null
+if [ $? -ne 0 ]; then
+    echo "Python development headers not found. Installing..."
+    apt-get install -y python3-dev
+    check_status "Python development headers installation"
+else
+    echo "Python development headers are already installed."
+fi
