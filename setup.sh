@@ -11,10 +11,12 @@
 #
 #        {Creating User Registrations with Scripted Optimization and Replication}
 #
-#!/bin/bash
 
+# Install system packages
+sudo apt-get update
 sudo apt update
 sudo apt install -y python3 python3-pip python3-venv
+sudo apt-get install -y python3-dev libudev-dev python3-xlib google-chrome-stable
 
 pip3 install -r requirements.txt --break-system-packages
 
@@ -24,4 +26,10 @@ sudo apt-get install -f -y
 
 rm google-chrome-stable_current_amd64.deb
 
-echo "Setup completed successfully!"
+# Load uinput kernel module
+sudo modprobe uinput
+
+# Set uinput permissions
+sudo chmod 666 /dev/uinput
+
+echo "Setup complete. You can now run: sudo -E python3 cursor_signup.py"
