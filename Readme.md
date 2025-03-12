@@ -15,7 +15,7 @@
                           {Creating User Registrations with Scripted Optimization and Replication}
 
   <p align=center>The</p> 
-  <p align=center><font size="16"><b>Depricated Project</b></u></font></p>
+<h3><p align=center><b><mark>DEPRICATED PROJECT</b></p>
 
 
 <s><h2>🌟 Overview</h2>
