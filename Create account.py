@@ -1,276 +1,176 @@
-#!/usr/bin/env python3
-"""
-Cursor.com Account Creator
-This script automates the process of creating accounts on cursor.com using
-temporary email services.
-"""
+#                                     WELCOME TO
+#
+#  .d8888b.      888     888     8888888b.       .d8888b.       .d88888b.      8888888b.  
+# d88P  Y88b     888     888     888   Y88b     d88P  Y88b     d88P" "Y88b     888   Y88b 
+# 888    888     888     888     888    888     Y88b.          888     888     888    888 
+# 888            888     888     888   d88P      "Y888b.       888     888     888   d88P 
+# 888            888     888     8888888P"          "Y88b.     888     888     8888888P"  
+# 888    888     888     888     888 T88b             "888     888     888     888 T88b   
+# Y88b  d88P d8b Y88b. .d88P d8b 888  T88b  d8b Y88b  d88P d8b Y88b. .d88P d8b 888  T88b  
+#  "Y8888P"  Y8P  "Y88888P"  Y8P 888   T88b Y8P  "Y8888P"  Y8P  "Y88888P"  Y8P 888   T88b 
+#
+#        {Creating User Registrations with Scripted Optimization and Replication}
 
-import subprocess
 import time
 import random
+import requests
 import string
-import yaml
-import os
-import logging
-import re
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.common.exceptions import TimeoutException
-import requests
-import undetected_chromedriver as uc  # For bypassing detection
+from undetected_chromedriver import Chrome, ChromeOptions
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.keys import Keys
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),  # Output to console
-        logging.FileHandler("cursor_account_creation.log")  # Output to file
-    ]
-)
-logger = logging.getLogger(__name__)
+def human_delay(min_sec=1, max_sec=3):
+    # Random wait between actions
+    time.sleep(random.uniform(min_sec, max_sec))
 
-class CursorAccountCreator:
-    """Class to handle the creation of Cursor.com accounts"""
+def get_temp_email():
+    # Get disposable email from mail.tm
+    try:
+        # Find available email domains
+        domains = requests.get("https://api.mail.tm/domains").json()['hydra:member']
+        domain = domains[0]['domain']
+        
+        # Generate random email credentials
+        email = f"{''.join(random.choices(string.ascii_lowercase + string.digits, k=12))}@{domain}"
+        password = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+        
+        # Create mail.tm account
+        acc_response = requests.post("https://api.mail.tm/accounts", json={
+            "address": email, 
+            "password": password
+        })
+        
+        # Get auth token
+        token = requests.post("https://api.mail.tm/token", json={
+            "address": email,
+            "password": password
+        }).json()['token']
+
+        return {"email": email, "token": token}
+        
+    except Exception as e:
+        print(f"Email error: {e}")
+        return None
+
+def get_verification_code(email, auth_token):
+    # Check mailbox for verification code
+    headers = {"Authorization": f"Bearer {auth_token}"}
     
-    def __init__(self, output_file="accounts.yaml"):
-        """Initialize the account creator with configuration"""
-        self.output_file = output_file
-        # Check if output file exists, if not create it with empty accounts list
-        if not os.path.exists(output_file):
-            with open(output_file, 'w') as file:
-                yaml.dump({"accounts": []}, file)
-        
-        # Initialize browser
-        self.browser = None
-        self.email = None
-        self.password = None
-        
-    def setup_browser(self):
-        """Set up the browser with undetected chromedriver"""
-        logger.info("Setting up browser...")
-        
-        options = uc.ChromeOptions()
-        options.add_argument("--start-maximized")
-        # Add additional options as needed
-        
-        # Use undetected_chromedriver to avoid detection
-        self.browser = uc.Chrome(options=options)
-        logger.info("Browser setup complete")
-        
-    def generate_password(self, length=12):
-        """Generate a random secure password"""
-        chars = string.ascii_letters + string.digits + "!@#$%^&*"
-        return ''.join(random.choice(chars) for _ in range(length))
-    
-    def get_temp_email(self):
-        """Generate a temporary email using 1secmail API"""
-        logger.info("Generating temporary email...")
-        
-        response = requests.get("https://www.1secmail.com/api/v1/?action=genRandomMailbox&count=1")
-        if response.status_code == 200:
-            self.email = response.json()[0]
-            logger.info(f"Temporary email generated: {self.email}")
-            return self.email
-        else:
-            logger.error("Failed to generate temporary email")
-            raise Exception("Failed to generate temporary email")
-    
-    def check_for_verification_email(self, max_attempts=30, delay=10):
-        """Check for verification email in the temporary mailbox"""
-        logger.info(f"Checking for verification email at {self.email}...")
-        
-        # Parse the email address
-        username, domain = self.email.split('@')
-        
-        for attempt in range(max_attempts):
-            logger.info(f"Checking for emails (attempt {attempt+1}/{max_attempts})...")
-            
-            # Get mailbox messages
-            response = requests.get(
-                f"https://www.1secmail.com/api/v1/?action=getMessages&login={username}&domain={domain}"
-            )
-            
-            if response.status_code == 200:
-                messages = response.json()
-                
-                # Look for verification email
-                for message in messages:
-                    if "cursor" in message.get("subject", "").lower() or "verification" in message.get("subject", "").lower():
-                        logger.info(f"Verification email found: {message['subject']}")
-                        
-                        # Get the email content
-                        email_id = message["id"]
-                        email_response = requests.get(
-                            f"https://www.1secmail.com/api/v1/?action=readMessage&login={username}&domain={domain}&id={email_id}"
-                        )
-                        
-                        if email_response.status_code == 200:
-                            email_content = email_response.json()
-                            # Extract verification code using regex
-                            # This pattern might need adjustment based on the actual email format
-                            match = re.search(r'verification code[:\s]*([0-9]{4,6})', 
-                                             email_content.get("body", ""), re.IGNORECASE)
-                            
-                            if match:
-                                verification_code = match.group(1)
-                                logger.info(f"Verification code found: {verification_code}")
-                                return verification_code
-                            else:
-                                logger.warning("Could not extract verification code from email")
-            
-            logger.info(f"No verification email yet. Waiting {delay} seconds...")
-            time.sleep(delay)
-        
-        logger.error("Failed to receive verification email after maximum attempts")
-        raise Exception("Verification email not received")
-    
-    def create_account(self):
-        """Create a new Cursor.com account"""
+    for _ in range(10):
         try:
-            # Setup browser if not already done
-            if not self.browser:
-                self.setup_browser()
+            messages = requests.get("https://api.mail.tm/messages", headers=headers).json()['hydra:member']
+            if messages:
+                text = requests.get(f"https://api.mail.tm/messages/{messages[0]['id']}", 
+                                  headers=headers).json().get('text', '')
+                code = ''.join(filter(str.isdigit, text))
+                if code: return code[:6]
             
-            # Generate temporary email and password
-            self.get_temp_email()
-            self.password = self.generate_password()
-            
-            logger.info(f"Creating account with email: {self.email} and password: {self.password}")
-            
-            # Navigate to cursor.com
-            logger.info("Navigating to cursor.com...")
-            self.browser.get("https://cursor.com")
-            
-            # Wait for page to load
-            time.sleep(2)
-            
-            # Find and click the sign in button
-            logger.info("Looking for sign in button...")
-            signin_button = WebDriverWait(self.browser, 20).until(
-                EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Sign In')]"))
-            )
-            signin_button.click()
-            logger.info("Clicked sign in button")
-            
-            # Wait for sign in page and find sign up link
-            logger.info("Looking for sign up option...")
-            signup_link = WebDriverWait(self.browser, 20).until(
-                EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Sign up')]"))
-            )
-            signup_link.click()
-            logger.info("Clicked sign up option")
-            
-            # Wait for sign up form
-            logger.info("Filling out sign up form...")
-            
-            # Enter email
-            email_input = WebDriverWait(self.browser, 20).until(
-                EC.element_to_be_clickable((By.XPATH, "//input[@type='email']"))
-            )
-            email_input.clear()
-            email_input.send_keys(self.email)
-            logger.info("Entered email")
-            
-            # Submit email
-            email_input.submit()
-            logger.info("Submitted email")
-            
-            # Enter password
-            password_input = WebDriverWait(self.browser, 20).until(
-                EC.element_to_be_clickable((By.XPATH, "//input[@type='password']"))
-            )
-            password_input.clear()
-            password_input.send_keys(self.password)
-            logger.info("Entered password")
-            
-            # Submit password
-            password_input.submit()
-            logger.info("Submitted password")
-            
-            # Get verification code from email
-            logger.info("Waiting for verification email...")
-            verification_code = self.check_for_verification_email()
-            
-            # Enter verification code
-            verification_input = WebDriverWait(self.browser, 20).until(
-                EC.element_to_be_clickable((By.XPATH, "//input[contains(@aria-label, 'verification') or contains(@placeholder, 'code')]"))
-            )
-            verification_input.clear()
-            verification_input.send_keys(verification_code)
-            logger.info("Entered verification code")
-            
-            # Submit verification code
-            verification_input.submit()
-            logger.info("Submitted verification code")
-            
-            # Wait for account creation to complete
             time.sleep(5)
-            
-            # Save account details
-            self.save_account()
-            
-            logger.info("Account creation completed successfully!")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error during account creation: {str(e)}")
-            # Take screenshot if browser is available
-            if self.browser:
-                screenshot_path = f"error_screenshot_{int(time.time())}.png"
-                self.browser.save_screenshot(screenshot_path)
-                logger.info(f"Error screenshot saved to {screenshot_path}")
-            return False
-            
-        finally:
-            # Close browser after completion or error
-            if self.browser:
-                logger.info("Closing browser...")
-                self.browser.quit()
-    
-    def save_account(self):
-        """Save account credentials to YAML file"""
-        logger.info(f"Saving account details to {self.output_file}...")
-        
-        # Load existing accounts
-        with open(self.output_file, 'r') as file:
-            data = yaml.safe_load(file)
-        
-        # Add new account
-        account_data = {
-            "email": self.email,
-            "password": self.password,
-            "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
-        }
-        
-        if not data:
-            data = {"accounts": []}
-        elif "accounts" not in data:
-            data["accounts"] = []
-            
-        data["accounts"].append(account_data)
-        
-        # Save updated data
-        with open(self.output_file, 'w') as file:
-            yaml.dump(data, file, default_flow_style=False)
-        
-        logger.info("Account details saved successfully")
+        except:
+            time.sleep(10)
+    return None
 
 def main():
-    """Main function to run the account creator"""
-    logger.info("Starting Cursor.com account creation process")
+    # Browser setup
+    options = ChromeOptions()
+    options.add_argument("--start-maximized")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--disable-infobars")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
     
-    creator = CursorAccountCreator()
-    success = creator.create_account()
+    # Start Chrome
+    driver = Chrome(
+        executable_path=ChromeDriverManager().install(),
+        options=options,
+        suppress_welcome=True,
+        headless=False,
+        version_main=134
+    )
+    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     
-    if success:
-        logger.info("Account creation completed successfully!")
-    else:
-        logger.error("Account creation failed.")
+    wait = WebDriverWait(driver, 25)
+    actions = ActionChains(driver)
     
+    try:
+        # Start process
+        driver.get("https://cursor.com")
+        human_delay(2,4)
+        input("\n>>> Go to signup page in browser, then press Enter...")
+        
+        # Email handling
+        temp_acc = get_temp_email()
+        if not temp_acc: return
+        
+        # Enter email
+        email_field = wait.until(EC.element_to_be_clickable((By.NAME, 'email')))
+        actions.move_to_element(email_field).pause(random.uniform(0.5,1.5)).perform()
+        
+        # Type email with human-like errors
+        for char in temp_acc['email']:
+            if random.random() < 0.1:  # Simulate typos
+                email_field.send_keys(random.choice(string.ascii_lowercase))
+                time.sleep(random.uniform(0.2,0.4))
+                email_field.send_keys(Keys.BACKSPACE)
+                time.sleep(random.uniform(0.1,0.3))
+                
+            email_field.send_keys(char)
+            time.sleep(max(random.gauss(0.15,0.05), 0.05))
+            
+            if random.random() < 0.07:  # Pause to "check" input
+                time.sleep(random.uniform(0.8,1.5))
+                actions.move_by_offset(random.randint(-5,5), random.randint(-5,5)).perform()
+        
+        # Submit email
+        input("\n>>> Complete Cloudflare checks and press Enter...")
+        actions.send_keys("\ue007").perform()
+        
+        # Password handling
+        input("\n>>> Complete checks and press Enter for password...")
+        password = f"CursorAI@{random.randint(1000,9999)}"
+        for char in password:
+            wait.until(EC.presence_of_element_located((By.NAME, 'password'))).send_keys(char)
+            time.sleep(random.uniform(0.05,0.2))
+        
+        human_delay()
+        
+        # Verification code
+        input("\n>>> Press Enter to check for code...")
+        code = get_verification_code(temp_acc['email'], temp_acc['token'])
+        if not code: return
+        
+        human_delay(2,3)
+        wait.until(EC.visibility_of_element_located((By.ID, 'verification-container')))
+        
+        # Enter code
+        code_field = wait.until(EC.element_to_be_clickable((By.NAME, 'code')))
+        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", code_field)
+        
+        for char in code:
+            if random.random() < 0.15:  # Simulate code typos
+                code_field.send_keys(random.choice(string.digits))
+                time.sleep(random.uniform(0.1,0.3))
+                code_field.send_keys(Keys.BACKSPACE)
+                time.sleep(random.uniform(0.1,0.2))
+                
+            code_field.send_keys(char)
+            time.sleep(random.uniform(0.1,0.4))
+            
+            if random.random() < 0.2:  # Random mouse movements
+                actions.move_to_element(code_field).move_by_offset(random.randint(-5,5), random.randint(-5,5)).perform()
+        
+        print("\nAccount created!")
+        human_delay(5,7)
+        
+    finally:
+        driver.quit()
+
 if __name__ == "__main__":
     main()
+
+

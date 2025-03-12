@@ -1,7 +1,8 @@
-  <h1 align=center>     Lightweight Automated Account Creation Tool </h1>
+<s><h1 align=center>     Lightweight Automated Account Creation Tool </h1></s>
 
                                                         WELCOME TO
-
+                                                  The <u><font size="5"><b>Depricated Project</b></u></font>
+<s>
                     .d8888b.      888     888     8888888b.       .d8888b.       .d88888b.      8888888b.  
                    d88P  Y88b     888     888     888   Y88b     d88P  Y88b     d88P" "Y88b     888   Y88b 
                    888    888     888     888     888    888     Y88b.          888     888     888    888 
@@ -13,4 +14,4 @@
 
                           {Creating User Registrations with Scripted Optimization and Replication}
 <h2>🌟 Overview</h2>
-    <p>CURSOR is a lightweight, automated tool designed to streamline the process of creating multiple user accounts effortlessly. With a focus on speed and efficiency, it leverages automated scripting to handle bulk account generation with minimal configuration.</p>
+    <p>CURSOR is a lightweight automated tool that works on ubuntu and designed to streamline the process of creating multiple user accounts effortlessly. With a focus on speed and efficiency it leverages automated scripting to handle bulk account generation with minimal configuration.</p></s>
